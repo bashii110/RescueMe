@@ -45,11 +45,9 @@ class _HomeScreenState extends State<HomeScreen>
   int _highNoiseCount = 0;
   final List<double> _recentAccelerations = [];
 
-  static const double HIGH_ACCELERATION_THRESHOLD = 20.0;
-  static const double MEDIUM_ACCELERATION_THRESHOLD = 15.0;
-  static const double HIGH_NOISE_THRESHOLD = 75.0;
-  static const double MEDIUM_NOISE_THRESHOLD = 70.0;
-  static const double GYROSCOPE_THRESHOLD = 3.0;
+  static const double STRICT_ACCEL_THRESHOLD = 45.0;
+  static const double STRICT_GYRO_THRESHOLD = 4.0;
+  static const double STRICT_NOISE_THRESHOLD = 90.0;
   static const int REQUIRED_SAMPLES = 2;
   static const int SMOOTH_WINDOW = 5;
   static const int ALARM_DURATION = 30;
@@ -244,24 +242,24 @@ class _HomeScreenState extends State<HomeScreen>
         _recentAccelerations.length;
     if (avgAccel < 10.0) return;
     if (gyroMag < 0.3) return;
-    if (avgAccel > MEDIUM_ACCELERATION_THRESHOLD)
+    if (avgAccel > STRICT_ACCEL_THRESHOLD)
       _highAccelerationCount++;
     else
       _highAccelerationCount = 0;
-    if (_latestDB > MEDIUM_NOISE_THRESHOLD)
+    if (_latestDB > STRICT_NOISE_THRESHOLD)
       _highNoiseCount++;
     else
       _highNoiseCount = 0;
-    bool highImpact = avgAccel > HIGH_ACCELERATION_THRESHOLD &&
-        _highAccelerationCount >= REQUIRED_SAMPLES;
-    bool impactWithNoise = _highAccelerationCount >= REQUIRED_SAMPLES &&
-        _highNoiseCount >= REQUIRED_SAMPLES;
-    bool noiseWithImpact = _latestDB > HIGH_NOISE_THRESHOLD &&
-        avgAccel > MEDIUM_ACCELERATION_THRESHOLD;
-    bool rollover = gyroMag > GYROSCOPE_THRESHOLD &&
-        _highAccelerationCount >= REQUIRED_SAMPLES;
-    if (highImpact || impactWithNoise || noiseWithImpact || rollover)
+
+    // STRICT AND: all three signals must exceed their threshold
+    // at the same time before an accident is triggered.
+    bool accelOk = avgAccel > STRICT_ACCEL_THRESHOLD;
+    bool gyroOk = gyroMag > STRICT_GYRO_THRESHOLD;
+    bool noiseOk = _latestDB > STRICT_NOISE_THRESHOLD;
+
+    if (accelOk && gyroOk && noiseOk)
       _triggerAccident();
+
   }
 
   void _triggerAccident() {
@@ -821,15 +819,15 @@ class _HomeScreenState extends State<HomeScreen>
           const SizedBox(height: 16),
           _buildThresholdRow(
               'Impact Force',
-              '> ${HIGH_ACCELERATION_THRESHOLD.toStringAsFixed(0)} m/s²',
+              '> ${STRICT_ACCEL_THRESHOLD.toStringAsFixed(0)} m/s²',
               AppTheme.accent),
           _buildThresholdRow(
               'Noise Level',
-              '> ${HIGH_NOISE_THRESHOLD.toStringAsFixed(0)} dB',
+              '> ${STRICT_NOISE_THRESHOLD.toStringAsFixed(0)} dB',
               AppTheme.warning),
           _buildThresholdRow(
               'Rotation',
-              '> ${GYROSCOPE_THRESHOLD.toStringAsFixed(0)} rad/s',
+              '> ${STRICT_GYRO_THRESHOLD.toStringAsFixed(0)} rad/s',
               AppTheme.success),
           const SizedBox(height: 12),
           Container(
