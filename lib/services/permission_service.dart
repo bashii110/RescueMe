@@ -11,6 +11,7 @@ class PermissionService {
       Permission.location,
       Permission.locationAlways,
       Permission.notification,
+      Permission.microphone,
     ].request();
 
     bool allGranted = statuses.values.every((status) => status.isGranted);
@@ -34,12 +35,11 @@ class PermissionService {
 
   static Future<bool> requestLocationPermissions() async {
     PermissionStatus location = await Permission.location.request();
-
     if (location.isGranted) {
-      PermissionStatus locationAlways = await Permission.locationAlways.request();
+      PermissionStatus locationAlways =
+      await Permission.locationAlways.request();
       return locationAlways.isGranted || location.isGranted;
     }
-
     return false;
   }
 
@@ -63,13 +63,25 @@ class PermissionService {
     }
   }
 
+  /// Returns a map with keys: sms, phone, location, locationAlways,
+  /// notification, microphone — all checked against actual system state.
   static Future<Map<String, bool>> checkAllPermissions() async {
+    final results = await Future.wait([
+      Permission.sms.isGranted,
+      Permission.phone.isGranted,
+      Permission.location.isGranted,
+      Permission.locationAlways.isGranted,
+      Permission.notification.isGranted,
+      Permission.microphone.isGranted,
+    ]);
+
     return {
-      'sms': await Permission.sms.isGranted,
-      'phone': await Permission.phone.isGranted,
-      'location': await Permission.location.isGranted,
-      'locationAlways': await Permission.locationAlways.isGranted,
-      'notification': await Permission.notification.isGranted,
+      'sms': results[0],
+      'phone': results[1],
+      'location': results[2],
+      'locationAlways': results[3],
+      'notification': results[4],
+      'microphone': results[5],
     };
   }
 

@@ -35,8 +35,8 @@ class AccidentMonitoringService : Service(), SensorEventListener {
     private val recentAccelerations = mutableListOf<Double>()
 
     // Thresholds
-    private val HIGH_ACCELERATION_THRESHOLD = 20.0
-    private val MEDIUM_ACCELERATION_THRESHOLD = 15.0
+    private val STRICT_ACCEL_THRESHOLD = 45.0
+    private val STRICT_GYRO_THRESHOLD = 4.0
     private val GYROSCOPE_THRESHOLD = 3.0
     private val REQUIRED_SAMPLES = 2
     private val SMOOTH_WINDOW = 5
@@ -217,19 +217,20 @@ class AccidentMonitoringService : Service(), SensorEventListener {
         if (gyroscopeMagnitude < 0.3) return
 
         // Count high acceleration events
-        if (avgAccel > MEDIUM_ACCELERATION_THRESHOLD) {
+        // Count high acceleration events
+        if (avgAccel > STRICT_ACCEL_THRESHOLD) {
             highAccelerationCount++
         } else {
             highAccelerationCount = 0
         }
 
-        // Check for accident conditions
-        val highImpact = avgAccel > HIGH_ACCELERATION_THRESHOLD &&
-                highAccelerationCount >= REQUIRED_SAMPLES
-        val rollover = gyroscopeMagnitude > GYROSCOPE_THRESHOLD &&
-                highAccelerationCount >= REQUIRED_SAMPLES
+        // STRICT AND: acceleration and rotation must both exceed
+        // their threshold at the same time before triggering.
+        // (No microphone access natively, so noise leg is not evaluated here.)
+        val accelOk = avgAccel > STRICT_ACCEL_THRESHOLD
+        val gyroOk = gyroscopeMagnitude > STRICT_GYRO_THRESHOLD
 
-        if (highImpact || rollover) {
+        if (accelOk && gyroOk) {
             triggerAccident()
         }
     }
