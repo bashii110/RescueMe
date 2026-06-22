@@ -5,7 +5,7 @@ import 'package:msg_bypas/screens/setup_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({Key? key}) : super(key: key);
+  const SplashScreen({super.key});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -112,7 +112,7 @@ class _SplashScreenState extends State<SplashScreen>
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: AppTheme.accent.withOpacity(0.08),
+                        color: AppTheme.accent.withValues(alpha: 0.08),
                         width: 1,
                       ),
                     ),
@@ -131,7 +131,7 @@ class _SplashScreenState extends State<SplashScreen>
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: AppTheme.accent.withOpacity(0.15),
+                        color: AppTheme.accent.withValues(alpha: 0.15),
                         width: 1,
                       ),
                     ),
@@ -165,7 +165,7 @@ class _SplashScreenState extends State<SplashScreen>
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: AppTheme.accent.withOpacity(0.4),
+                                  color: AppTheme.accent.withValues(alpha: 0.4),
                                   blurRadius: 30,
                                   spreadRadius: 5,
                                 ),
@@ -195,7 +195,7 @@ class _SplashScreenState extends State<SplashScreen>
                             horizontal: 16, vertical: 6),
                         decoration: BoxDecoration(
                           border: Border.all(
-                              color: AppTheme.accent.withOpacity(0.4)),
+                              color: AppTheme.accent.withValues(alpha: 0.4)),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
@@ -229,7 +229,7 @@ class _SplashScreenState extends State<SplashScreen>
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   color: AppTheme.accent
-                                      .withOpacity(0.3 + opacity * 0.7),
+                                      .withValues(alpha: 0.3 + opacity * 0.7),
                                 ),
                               );
                             },

@@ -31,7 +31,7 @@ import 'package:noise_meter/noise_meter.dart';
 // the screen only refreshes once every 30 seconds. Each refresh also reports
 // the highest and lowest peak that each sensor reached during that window.
 class SensorReadingsScreen extends StatefulWidget {
-  const SensorReadingsScreen({Key? key}) : super(key: key);
+  const SensorReadingsScreen({super.key});
 
   @override
   State<SensorReadingsScreen> createState() => _SensorReadingsScreenState();
@@ -86,7 +86,7 @@ class _SensorReadingsScreenState extends State<SensorReadingsScreen>
       duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
 
-    _accelSub = accelerometerEvents.listen((e) {
+    _accelSub = accelerometerEventStream().listen((e) {
       _rawAccelX = e.x;
       _rawAccelY = e.y;
       _rawAccelZ = e.z;
@@ -97,7 +97,7 @@ class _SensorReadingsScreenState extends State<SensorReadingsScreen>
       (_windowAccelLow == null) ? mag : min(_windowAccelLow!, mag);
     });
 
-    _gyroSub = gyroscopeEvents.listen((e) {
+    _gyroSub = gyroscopeEventStream().listen((e) {
       _rawGyroX = e.x;
       _rawGyroY = e.y;
       _rawGyroZ = e.z;
@@ -275,10 +275,10 @@ class _SensorReadingsScreenState extends State<SensorReadingsScreen>
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: AppTheme.success
-                  .withOpacity(0.4 + _pulseController.value * 0.6),
+                  .withValues(alpha: 0.4 + _pulseController.value * 0.6),
               boxShadow: [
                 BoxShadow(
-                  color: AppTheme.success.withOpacity(0.4),
+                  color: AppTheme.success.withValues(alpha: 0.4),
                   blurRadius: 6 + _pulseController.value * 4,
                 ),
               ],
@@ -323,7 +323,7 @@ class _SensorReadingsScreenState extends State<SensorReadingsScreen>
         color: AppTheme.bgCard,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isHigh ? color.withOpacity(0.5) : AppTheme.border,
+          color: isHigh ? color.withValues(alpha: 0.5) : AppTheme.border,
           width: isHigh ? 1.5 : 1,
         ),
       ),
@@ -336,7 +336,7 @@ class _SensorReadingsScreenState extends State<SensorReadingsScreen>
               Container(
                 width: 30, height: 30,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(icon, size: 15, color: color),
@@ -418,10 +418,10 @@ class _SensorReadingsScreenState extends State<SensorReadingsScreen>
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-        color: highlight ? color.withOpacity(0.08) : AppTheme.bgCardLight,
+        color: highlight ? color.withValues(alpha: 0.08) : AppTheme.bgCardLight,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: highlight ? color.withOpacity(0.25) : Colors.transparent,
+          color: highlight ? color.withValues(alpha: 0.25) : Colors.transparent,
         ),
       ),
       child: Column(
@@ -481,7 +481,7 @@ class _SensorReadingsScreenState extends State<SensorReadingsScreen>
         color: AppTheme.bgCard,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isHigh ? AppTheme.accent.withOpacity(0.5) : AppTheme.border,
+          color: isHigh ? AppTheme.accent.withValues(alpha: 0.5) : AppTheme.border,
           width: isHigh ? 1.5 : 1,
         ),
       ),
@@ -493,7 +493,7 @@ class _SensorReadingsScreenState extends State<SensorReadingsScreen>
               Container(
                 width: 30, height: 30,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(Icons.mic_rounded, size: 15, color: color),

@@ -5,7 +5,7 @@ import '../services/oppo_vivo_helper.dart';
 import 'home_screen.dart';
 
 class SetupScreen extends StatefulWidget {
-  const SetupScreen({Key? key}) : super(key: key);
+  const SetupScreen({super.key});
 
   @override
   State<SetupScreen> createState() => _SetupScreenState();
@@ -13,7 +13,6 @@ class SetupScreen extends StatefulWidget {
 
 class _SetupScreenState extends State<SetupScreen> {
   bool _isLoading = false;
-  int _currentStep = 0;
   bool _isRestrictedDevice = false;
   String _manufacturer = '';
 

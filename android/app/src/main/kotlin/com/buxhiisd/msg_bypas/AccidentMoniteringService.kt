@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 class AccidentMonitoringService : Service(), SensorEventListener {
@@ -30,59 +31,48 @@ class AccidentMonitoringService : Service(), SensorEventListener {
     private var gyroscopeY = 0.0
     private var gyroscopeZ = 0.0
 
-    // Detection tracking
-    private var highAccelerationCount = 0
+    // Smoothing
     private val recentAccelerations = mutableListOf<Double>()
-
-    // Thresholds
-    private val STRICT_ACCEL_THRESHOLD = 45.0
-    private val STRICT_GYRO_THRESHOLD = 4.0
-    private val GYROSCOPE_THRESHOLD = 3.0
-    private val REQUIRED_SAMPLES = 2
     private val SMOOTH_WINDOW = 5
+
+    // ── Detection thresholds ──────────────────────────────────────────────
+    private val STRICT_ACCEL_THRESHOLD = 45.0   // m/s²
+    private val STRICT_GYRO_THRESHOLD  = 4.0    // rad/s
+    private val DETECTION_WINDOW_MS    = 2000L  // 2 seconds
+
+    // Timestamps — each records when that sensor last crossed its threshold.
+    // Both must have fired within DETECTION_WINDOW_MS to confirm an accident.
+    // Null means that sensor has not yet triggered in the current window.
+    private var accelTriggerTime: Long? = null
+    private var gyroTriggerTime:  Long? = null
 
     private var isAccidentDetected = false
 
     companion object {
         private const val NOTIFICATION_ID = 1001
-        private const val CHANNEL_ID = "accident_monitoring_channel"
-        private const val CHANNEL_NAME = "Accident Monitoring"
+        private const val CHANNEL_ID      = "accident_monitoring_channel"
+        private const val CHANNEL_NAME    = "Accident Monitoring"
     }
 
     override fun onCreate() {
         super.onCreate()
         Log.d("AccidentService", "🚀 Service created")
 
-        // CRITICAL: Acquire wake lock for OPPO devices
         acquireWakeLock()
 
-        // Initialize sensors
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        gyroscope     = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 
-        if (accelerometer == null) {
-            Log.e("AccidentService", "❌ No accelerometer found!")
-        }
-        if (gyroscope == null) {
-            Log.e("AccidentService", "❌ No gyroscope found!")
-        }
+        if (accelerometer == null) Log.e("AccidentService", "❌ No accelerometer found!")
+        if (gyroscope     == null) Log.e("AccidentService", "❌ No gyroscope found!")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d("AccidentService", "🎯 Service started")
-
-        // Create notification channel
         createNotificationChannel()
-
-        // Start foreground with OPPO-optimized notification
-        val notification = createNotification()
-        startForeground(NOTIFICATION_ID, notification)
-
-        // Register sensors
+        startForeground(NOTIFICATION_ID, createNotification())
         registerSensors()
-
-        // Return STICKY to ensure service restarts if killed
         return START_STICKY
     }
 
@@ -103,38 +93,35 @@ class AccidentMonitoringService : Service(), SensorEventListener {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val importance = NotificationManager.IMPORTANCE_HIGH // HIGH for OPPO
-            val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, importance).apply {
-                description = "Monitors for accidents in background"
+            val channel = NotificationChannel(
+                CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description        = "Monitors for accidents in background"
                 setShowBadge(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
-
-            val notificationManager = getSystemService(NotificationManager::class.java)
-            notificationManager.createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
             Log.d("AccidentService", "✅ Notification channel created")
         }
     }
 
     private fun createNotification(): Notification {
-        val notificationIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            notificationIntent,
+            this, 0,
+            Intent(this, MainActivity::class.java),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             else
                 PendingIntent.FLAG_UPDATE_CURRENT
         )
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("🛡️ Rescue Me Active")
             .setContentText("Monitoring for accidents in background")
-            .setSmallIcon(android.R.drawable.ic_menu_compass) // Use your app icon
+            .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentIntent(pendingIntent)
-            .setOngoing(true) // Make it persistent
-            .setPriority(NotificationCompat.PRIORITY_HIGH) // HIGH priority for OPPO
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(false)
@@ -144,20 +131,11 @@ class AccidentMonitoringService : Service(), SensorEventListener {
     private fun registerSensors() {
         try {
             accelerometer?.let {
-                sensorManager.registerListener(
-                    this,
-                    it,
-                    SensorManager.SENSOR_DELAY_NORMAL
-                )
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
                 Log.d("AccidentService", "✅ Accelerometer registered")
             }
-
             gyroscope?.let {
-                sensorManager.registerListener(
-                    this,
-                    it,
-                    SensorManager.SENSOR_DELAY_NORMAL
-                )
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
                 Log.d("AccidentService", "✅ Gyroscope registered")
             }
         } catch (e: Exception) {
@@ -167,7 +145,6 @@ class AccidentMonitoringService : Service(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent?) {
         event ?: return
-
         when (event.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {
                 accelerateX = event.values[0].toDouble()
@@ -183,10 +160,21 @@ class AccidentMonitoringService : Service(), SensorEventListener {
         }
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // Not needed for this use case
-    }
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) { /* not needed */ }
 
+    // ── Core detection logic ──────────────────────────────────────────────
+    //
+    // Each sensor independently records the last time it crossed its threshold.
+    // An accident is confirmed only when BOTH timestamps exist AND the spread
+    // between them is within DETECTION_WINDOW_MS (2 seconds).
+    //
+    // Timestamps older than the window are expired automatically — this ensures
+    // a single-sensor spike from 5 seconds ago can never combine with a fresh
+    // spike today to create a false trigger.
+    //
+    // No order is enforced: gyro may fire before accel or vice versa, which
+    // correctly handles all real-world crash geometries.
+    //
     private fun checkForAccident() {
         if (isAccidentDetected) return
 
@@ -195,64 +183,65 @@ class AccidentMonitoringService : Service(), SensorEventListener {
                     accelerateY * accelerateY +
                     accelerateZ * accelerateZ
         )
-
         val gyroscopeMagnitude = sqrt(
             gyroscopeX * gyroscopeX +
                     gyroscopeY * gyroscopeY +
                     gyroscopeZ * gyroscopeZ
         )
 
-        // Add to smoothing window
+        // Smoothing window
         recentAccelerations.add(accelerationMagnitude)
-        if (recentAccelerations.size > SMOOTH_WINDOW) {
-            recentAccelerations.removeAt(0)
-        }
-
+        if (recentAccelerations.size > SMOOTH_WINDOW) recentAccelerations.removeAt(0)
         if (recentAccelerations.isEmpty()) return
 
         val avgAccel = recentAccelerations.average()
 
-        // Early return if too low
-        if (avgAccel < 10.0) return
-        if (gyroscopeMagnitude < 0.3) return
+        val now = System.currentTimeMillis()
 
-        // Count high acceleration events
-        // Count high acceleration events
-        if (avgAccel > STRICT_ACCEL_THRESHOLD) {
-            highAccelerationCount++
-        } else {
-            highAccelerationCount = 0
-        }
+        // ── Step 1: Expire timestamps outside the detection window.
+        //    If accel spiked 5 s ago but gyro hasn't fired yet, that
+        //    accel event is irrelevant — clear it and wait for a fresh one.
+        accelTriggerTime?.let { if (now - it > DETECTION_WINDOW_MS) accelTriggerTime = null }
+        gyroTriggerTime?.let  { if (now - it > DETECTION_WINDOW_MS) gyroTriggerTime  = null }
 
-        // STRICT AND: acceleration and rotation must both exceed
-        // their threshold at the same time before triggering.
-        // (No microphone access natively, so noise leg is not evaluated here.)
-        val accelOk = avgAccel > STRICT_ACCEL_THRESHOLD
-        val gyroOk = gyroscopeMagnitude > STRICT_GYRO_THRESHOLD
+        // ── Step 2: Record a fresh timestamp if the sensor crosses its threshold.
+        if (avgAccel          > STRICT_ACCEL_THRESHOLD) accelTriggerTime = now
+        if (gyroscopeMagnitude > STRICT_GYRO_THRESHOLD) gyroTriggerTime  = now
 
-        if (accelOk && gyroOk) {
+        // ── Step 3: Both must have triggered to proceed.
+        val at = accelTriggerTime ?: return
+        val gt = gyroTriggerTime  ?: return
+
+        // ── Step 4: Check the spread fits within the detection window.
+        val spreadMs = abs(at - gt)
+        if (spreadMs <= DETECTION_WINDOW_MS) {
+            // ✅ Accident confirmed — both sensors fired within the window.
+            accelTriggerTime = null
+            gyroTriggerTime  = null
             triggerAccident()
         }
     }
 
+    private fun resetTriggerTimestamps() {
+        accelTriggerTime = null
+        gyroTriggerTime  = null
+    }
+
     private fun triggerAccident() {
         isAccidentDetected = true
-        highAccelerationCount = 0
         recentAccelerations.clear()
+        resetTriggerTimestamps() // belt-and-suspenders
 
         Log.d("AccidentService", "🚨 ACCIDENT DETECTED IN BACKGROUND!")
 
-        // Update notification
         updateNotificationForAccident()
-
-        // Launch MainActivity
         launchMainActivity()
 
         // Broadcast to MainActivity if it's running
-        val intent = Intent("ACCIDENT_DETECTED_BACKGROUND")
-        sendBroadcast(intent)
+        sendBroadcast(Intent("ACCIDENT_DETECTED_BACKGROUND"))
 
-        // Reset detection after 30 seconds
+        // Reset detection flag after 30 seconds so the service
+        // can detect a subsequent accident if needed.
         android.os.Handler(mainLooper).postDelayed({
             isAccidentDetected = false
             Log.d("AccidentService", "✅ Detection reset")
@@ -269,9 +258,8 @@ class AccidentMonitoringService : Service(), SensorEventListener {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(false)
             .build()
-
-        val notificationManager = getSystemService(NotificationManager::class.java)
-        notificationManager.notify(NOTIFICATION_ID, notification)
+        getSystemService(NotificationManager::class.java)
+            .notify(NOTIFICATION_ID, notification)
     }
 
     private fun launchMainActivity() {
@@ -293,30 +281,20 @@ class AccidentMonitoringService : Service(), SensorEventListener {
         super.onDestroy()
         Log.d("AccidentService", "🛑 Service destroyed")
 
-        // Unregister sensors
         sensorManager.unregisterListener(this)
 
-        // Release wake lock
-        wakeLock?.let {
-            if (it.isHeld) {
-                it.release()
-            }
-        }
+        wakeLock?.let { if (it.isHeld) it.release() }
 
-        // CRITICAL: Restart service for OPPO devices
+        // Restart service via AlarmManager for OEM devices that kill services.
         val restartIntent = Intent(applicationContext, AccidentMonitoringService::class.java)
         val pendingIntent = PendingIntent.getService(
-            applicationContext,
-            1,
-            restartIntent,
+            applicationContext, 1, restartIntent,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT
             else
                 PendingIntent.FLAG_ONE_SHOT
         )
-
-        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        alarmManager.set(
+        (getSystemService(Context.ALARM_SERVICE) as AlarmManager).set(
             AlarmManager.RTC_WAKEUP,
             System.currentTimeMillis() + 1000,
             pendingIntent

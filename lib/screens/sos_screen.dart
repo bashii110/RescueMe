@@ -186,7 +186,7 @@ class _SosScreenState extends State<SosScreen> with TickerProviderStateMixin {
             center: const Alignment(0, -0.3),
             radius: 1.2,
             colors: [
-              AppTheme.success.withOpacity(0.07 * _glowPulse.value),
+              AppTheme.success.withValues(alpha: 0.07 * _glowPulse.value),
               AppTheme.bgDark,
               const Color(0xFF050A10),
             ],
@@ -232,8 +232,8 @@ class _SosScreenState extends State<SosScreen> with TickerProviderStateMixin {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                  color: AppTheme.success.withOpacity(0.3)),
-              color: AppTheme.success.withOpacity(0.06),
+                  color: AppTheme.success.withValues(alpha: 0.3)),
+              color: AppTheme.success.withValues(alpha: 0.06),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -304,7 +304,7 @@ class _SosScreenState extends State<SosScreen> with TickerProviderStateMixin {
                           boxShadow: [
                             BoxShadow(
                               color: AppTheme.success
-                                  .withOpacity(0.25 * _glowPulse.value),
+                                  .withValues(alpha: 0.25 * _glowPulse.value),
                               blurRadius: 40,
                               spreadRadius: 10,
                             ),
@@ -321,12 +321,12 @@ class _SosScreenState extends State<SosScreen> with TickerProviderStateMixin {
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                             colors: [
-                              AppTheme.success.withOpacity(0.2),
-                              AppTheme.success.withOpacity(0.08),
+                              AppTheme.success.withValues(alpha: 0.2),
+                              AppTheme.success.withValues(alpha: 0.08),
                             ],
                           ),
                           border: Border.all(
-                            color: AppTheme.success.withOpacity(0.5),
+                            color: AppTheme.success.withValues(alpha: 0.5),
                             width: 1.5,
                           ),
                         ),
@@ -468,7 +468,7 @@ class _SosScreenState extends State<SosScreen> with TickerProviderStateMixin {
         color: AppTheme.bgCard,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: card.color.withOpacity(0.15),
+          color: card.color.withValues(alpha: 0.15),
         ),
       ),
       child: Row(
@@ -478,9 +478,9 @@ class _SosScreenState extends State<SosScreen> with TickerProviderStateMixin {
             height: 44,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              color: card.color.withOpacity(0.1),
+              color: card.color.withValues(alpha: 0.1),
               border:
-              Border.all(color: card.color.withOpacity(0.2)),
+              Border.all(color: card.color.withValues(alpha: 0.2)),
             ),
             child: Icon(card.icon, color: card.color, size: 20),
           ),
@@ -505,7 +505,7 @@ class _SosScreenState extends State<SosScreen> with TickerProviderStateMixin {
             height: 24,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: card.color.withOpacity(0.12),
+              color: card.color.withValues(alpha: 0.12),
             ),
             child: Icon(Icons.check_rounded, color: card.color, size: 14),
           ),
@@ -548,7 +548,7 @@ class _SosScreenState extends State<SosScreen> with TickerProviderStateMixin {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: AppTheme.success.withOpacity(
+                        color: AppTheme.success.withValues(alpha:
                             0.25 + _glowPulse.value * 0.15),
                         blurRadius: 20 + _glowPulse.value * 8,
                         spreadRadius: 1,
@@ -628,7 +628,7 @@ class _RingsPainter extends CustomPainter {
       final opacity = (1.0 - eased) * 0.4;
 
       final paint = Paint()
-        ..color = color.withOpacity(opacity)
+        ..color = color.withValues(alpha: opacity)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5;
       canvas.drawCircle(center, radius, paint);
@@ -636,7 +636,7 @@ class _RingsPainter extends CustomPainter {
 
     // Static subtle ring
     final staticPaint = Paint()
-      ..color = color.withOpacity(0.06)
+      ..color = color.withValues(alpha: 0.06)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
     canvas.drawCircle(center, maxR * 0.95, staticPaint);
@@ -724,7 +724,7 @@ class _ParticlePainter extends CustomPainter {
           p.opacity * (1 - (t > 0.7 ? (t - 0.7) / 0.3 : 0));
 
       final paint = Paint()
-        ..color = color.withOpacity(fadeOpacity * 0.5)
+        ..color = color.withValues(alpha: fadeOpacity * 0.5)
         ..style = PaintingStyle.fill;
       canvas.drawCircle(Offset(x, y), p.size / 2, paint);
     }

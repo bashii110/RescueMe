@@ -4,7 +4,7 @@ import 'splash_screen.dart';
 import '../services/contacts_notifier.dart';
 
 class EmergencyContactsScreen extends StatefulWidget {
-  const EmergencyContactsScreen({Key? key}) : super(key: key);
+  const EmergencyContactsScreen({super.key});
 
   @override
   State<EmergencyContactsScreen> createState() =>
@@ -109,7 +109,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen>
                 height: 52,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: AppTheme.accent.withOpacity(0.1),
+                  color: AppTheme.accent.withValues(alpha: 0.1),
                 ),
                 child: const Icon(Icons.person_remove_rounded,
                     color: AppTheme.accent, size: 24),
@@ -176,7 +176,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen>
       content: Text(message,
           style: AppTheme.bodyFont
               .copyWith(color: Colors.white, fontWeight: FontWeight.w600)),
-      backgroundColor: color.withOpacity(0.9),
+      backgroundColor: color.withValues(alpha: 0.9),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       margin: const EdgeInsets.all(16),
@@ -270,8 +270,8 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen>
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            color: AppTheme.accent.withOpacity(0.06),
-            border: Border.all(color: AppTheme.accent.withOpacity(0.2)),
+            color: AppTheme.accent.withValues(alpha: 0.06),
+            border: Border.all(color: AppTheme.accent.withValues(alpha: 0.2)),
           ),
           child: Row(
             children: [
@@ -317,9 +317,9 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen>
                     height: 46,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: color.withOpacity(0.12),
+                      color: color.withValues(alpha: 0.12),
                       border:
-                      Border.all(color: color.withOpacity(0.3), width: 1),
+                      Border.all(color: color.withValues(alpha: 0.3), width: 1),
                     ),
                     child: Center(
                       child: Text(
@@ -365,7 +365,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen>
         height: 34,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
-          color: color.withOpacity(0.08),
+          color: color.withValues(alpha: 0.08),
         ),
         child: Icon(icon, size: 16, color: color),
       ),
@@ -385,7 +385,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen>
           ),
           boxShadow: [
             BoxShadow(
-                color: AppTheme.accent.withOpacity(0.35),
+                color: AppTheme.accent.withValues(alpha: 0.35),
                 blurRadius: 16,
                 spreadRadius: 1)
           ],
@@ -479,7 +479,7 @@ class _ContactDialogState extends State<_ContactDialog> {
                   height: 40,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: AppTheme.accent.withOpacity(0.1),
+                    color: AppTheme.accent.withValues(alpha: 0.1),
                   ),
                   child: const Icon(Icons.person_add_rounded,
                       color: AppTheme.accent, size: 18),

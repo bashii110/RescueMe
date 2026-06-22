@@ -4,7 +4,7 @@ import '../services/permission_service.dart';
 import '../services/oppo_vivo_helper.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({Key? key}) : super(key: key);
+  const SettingsScreen({super.key});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -42,14 +42,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _permissions = permissions);
   }
 
-  void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: color,
-      ),
-    );
-  }
+  // void _showSnackBar(String message, Color color) {
+  //   ScaffoldMessenger.of(context).showSnackBar(
+  //     SnackBar(
+  //       content: Text(message),
+  //       backgroundColor: color,
+  //     ),
+  //   );
+  // }
 
   void _showRestrictedDeviceDialog(String manufacturer) {
     showDialog(

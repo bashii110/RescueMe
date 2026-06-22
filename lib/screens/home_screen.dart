@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,7 +14,7 @@ import 'splash_screen.dart';
 import 'sos_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -41,20 +42,24 @@ class _HomeScreenState extends State<HomeScreen>
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
   StreamSubscription<GyroscopeEvent>? _gyroscopeSubscription;
 
-  int _highAccelerationCount = 0;
-  int _highNoiseCount = 0;
   final List<double> _recentAccelerations = [];
 
-  static const double STRICT_ACCEL_THRESHOLD = 45.0;
-  static const double STRICT_GYRO_THRESHOLD = 4.0;
-  static const double STRICT_NOISE_THRESHOLD = 90.0;
-  static const int REQUIRED_SAMPLES = 2;
-  static const int SMOOTH_WINDOW = 5;
-  static const int ALARM_DURATION = 30;
+  // ─── Detection thresholds ───────────────────────────
+  static const double accelThreshold  = 45.0;  // m/s²
+  static const double gyroThreshold   = 4.0;   // rad/s
+  static const double noiseThreshold  = 90.0;  // dB
+  static const int    timeWindow     = 2000;  // 2 seconds
+  static const int    smoothWindow           = 5;
+  static const int    alarmDuration          = 30;
 
-  static const platform = MethodChannel('com.buxhiisd.msg_bypas/alarm');
-  static const serviceChannel =
-  MethodChannel('com.buxhiisd.msg_bypas/service');
+  // Timestamps — each records when that sensor last crossed its threshold.
+  // All three must have fired within DETECTION_WINDOW_MS to confirm accident.
+  DateTime? _accelTriggerTime;
+  DateTime? _gyroTriggerTime;
+  DateTime? _noiseTriggerTime;
+
+  static const platform      = MethodChannel('com.buxhiisd.msg_bypas/alarm');
+  static const serviceChannel = MethodChannel('com.buxhiisd.msg_bypas/service');
 
   DateTime? _countdownEndTime;
   Timer? _uiUpdateTimer;
@@ -65,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _noiseMeter = NoiseMeter();
+    _noiseMeter  = NoiseMeter();
     _audioPlayer = AudioPlayer();
 
     _radarController = AnimationController(
@@ -86,13 +91,12 @@ class _HomeScreenState extends State<HomeScreen>
     _loadContactCount();
     platform.setMethodCallHandler(_handleMethodCall);
 
-    // Reload count instantly whenever contacts are added/removed
     ContactsNotifier.instance.addListener(_loadContactCount);
   }
 
   Future<void> _loadContactCount() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.reload(); // force fresh read — bypasses in-memory cache
+    await prefs.reload();
     final contacts = prefs.getStringList('emergency_contacts') ?? [];
     if (mounted) setState(() => _contactCount = contacts.length);
   }
@@ -100,17 +104,19 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _handleMethodCall(MethodCall call) async {
     if (call.method == 'onAccidentDetectedBackground') {
       if (!_isMonitoring) {
-        print('⚠️ Ignored background accident signal — monitoring is off');
+        if (kDebugMode) {
+          print('⚠️ Ignored background accident signal — monitoring is off');
+        }
         return;
       }
-      print('🚨 Accident detected from background service!');
+      if (kDebugMode) {
+        print('🚨 Accident detected from background service!');
+      }
       if (mounted && !_isAccidentDetected) {
         _triggerAccident();
       }
     }
   }
-
-
 
   @override
   void dispose() {
@@ -153,8 +159,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _checkBatteryOptimization() async {
     try {
-      final result =
-      await serviceChannel.invokeMethod('isBatteryOptimized');
+      final result = await serviceChannel.invokeMethod('isBatteryOptimized');
       setState(() => _isBatteryOptimized = result == true);
     } catch (_) {}
   }
@@ -168,7 +173,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   int _getRemainingSeconds() {
-    if (_countdownEndTime == null) return ALARM_DURATION;
+    if (_countdownEndTime == null) return alarmDuration;
     final remaining = _countdownEndTime!.difference(DateTime.now()).inSeconds;
     return remaining > 0 ? remaining : 0;
   }
@@ -206,14 +211,14 @@ class _HomeScreenState extends State<HomeScreen>
       });
     } catch (_) {}
 
-    _accelerometerSubscription = accelerometerEvents.listen((event) {
+    _accelerometerSubscription = accelerometerEventStream().listen((event) {
       _accelerateX = event.x;
       _accelerateY = event.y;
       _accelerateZ = event.z;
       if (!_isAlarmPlaying) _checkForAccident();
     });
 
-    _gyroscopeSubscription = gyroscopeEvents.listen((event) {
+    _gyroscopeSubscription = gyroscopeEventStream().listen((event) {
       _gyroscopeX = event.x;
       _gyroscopeY = event.y;
       _gyroscopeZ = event.z;
@@ -224,86 +229,136 @@ class _HomeScreenState extends State<HomeScreen>
     _noiseSubscription?.cancel();
     _accelerometerSubscription?.cancel();
     _gyroscopeSubscription?.cancel();
+    // Clear any partial trigger state so stale timestamps
+    // don't carry over into the next monitoring session.
+    _resetTriggerTimestamps();
   }
 
+  // ─── Core detection logic ────────────────────────────────────────────────
+  // Each sensor independently records the last time it crossed its threshold.
+  // An accident is confirmed only when ALL THREE timestamps exist AND the
+  // spread between the oldest and newest is within DETECTION_WINDOW_MS.
+  // Any timestamp older than the window is expired and cleared automatically,
+  // so a partial match from a previous non-accident event can never combine
+  // with a later unrelated event to produce a false trigger.
+  //
   void _checkForAccident() {
     if (_isAccidentDetected || !_isMonitoring) return;
-    double accelMag = sqrt(_accelerateX * _accelerateX +
-        _accelerateY * _accelerateY +
-        _accelerateZ * _accelerateZ);
-    double gyroMag = sqrt(_gyroscopeX * _gyroscopeX +
-        _gyroscopeY * _gyroscopeY +
-        _gyroscopeZ * _gyroscopeZ);
+
+    final double accelMag = sqrt(
+        _accelerateX * _accelerateX +
+            _accelerateY * _accelerateY +
+            _accelerateZ * _accelerateZ);
+
+    final double gyroMag = sqrt(
+        _gyroscopeX * _gyroscopeX +
+            _gyroscopeY * _gyroscopeY +
+            _gyroscopeZ * _gyroscopeZ);
+
+    // Smoothing window for accelerometer
     _recentAccelerations.add(accelMag);
-    if (_recentAccelerations.length > SMOOTH_WINDOW)
+    if (_recentAccelerations.length > smoothWindow) {
       _recentAccelerations.removeAt(0);
+    }
     if (_recentAccelerations.isEmpty) return;
-    double avgAccel = _recentAccelerations.reduce((a, b) => a + b) /
+
+    final double avgAccel = _recentAccelerations.reduce((a, b) => a + b) /
         _recentAccelerations.length;
-    if (avgAccel < 10.0) return;
-    if (gyroMag < 0.3) return;
-    if (avgAccel > STRICT_ACCEL_THRESHOLD)
-      _highAccelerationCount++;
-    else
-      _highAccelerationCount = 0;
-    if (_latestDB > STRICT_NOISE_THRESHOLD)
-      _highNoiseCount++;
-    else
-      _highNoiseCount = 0;
 
-    // STRICT AND: all three signals must exceed their threshold
-    // at the same time before an accident is triggered.
-    bool accelOk = avgAccel > STRICT_ACCEL_THRESHOLD;
-    bool gyroOk = gyroMag > STRICT_GYRO_THRESHOLD;
-    bool noiseOk = _latestDB > STRICT_NOISE_THRESHOLD;
+    final now = DateTime.now();
 
-    if (accelOk && gyroOk && noiseOk)
+    // ── Step 1: Expire timestamps that are outside the detection window.
+    //    This ensures a partial trigger from 5 seconds ago doesn't combine
+    //    with a fresh spike today.
+    if (_accelTriggerTime != null &&
+        now.difference(_accelTriggerTime!).inMilliseconds > timeWindow) {
+      _accelTriggerTime = null;
+    }
+    if (_gyroTriggerTime != null &&
+        now.difference(_gyroTriggerTime!).inMilliseconds > timeWindow) {
+      _gyroTriggerTime = null;
+    }
+    if (_noiseTriggerTime != null &&
+        now.difference(_noiseTriggerTime!).inMilliseconds > timeWindow) {
+      _noiseTriggerTime = null;
+    }
+
+    // ── Step 2: Record a fresh timestamp if the sensor crosses its threshold.
+    if (avgAccel  > accelThreshold)  _accelTriggerTime = now;
+    if (gyroMag   > gyroThreshold)   _gyroTriggerTime  = now;
+    if (_latestDB > noiseThreshold)  _noiseTriggerTime = now;
+
+    // ── Step 3: All three must have triggered to proceed.
+    if (_accelTriggerTime == null ||
+        _gyroTriggerTime  == null ||
+        _noiseTriggerTime == null) {
+      return;
+    }
+
+    // ── Step 4: Check that all three fall within the detection window.
+    //    Find the oldest and newest timestamps — the spread must be ≤ 2 s.
+    final List<DateTime> times = [
+      _accelTriggerTime!,
+      _gyroTriggerTime!,
+      _noiseTriggerTime!,
+    ];
+    final DateTime oldest = times.reduce((a, b) => a.isBefore(b) ? a : b);
+    final DateTime newest = times.reduce((a, b) => a.isAfter(b)  ? a : b);
+    final int spreadMs = newest.difference(oldest).inMilliseconds;
+
+    if (spreadMs <= timeWindow) {
+      // ✅ Accident confirmed — all 3 sensors fired within the window.
+      _resetTriggerTimestamps();
       _triggerAccident();
+    }
+    // If spreadMs > DETECTION_WINDOW_MS the oldest timestamp would already
+    // have been expired in Step 1 on a future call, so no explicit reset needed.
+  }
 
+  void _resetTriggerTimestamps() {
+    _accelTriggerTime = null;
+    _gyroTriggerTime  = null;
+    _noiseTriggerTime = null;
   }
 
   void _triggerAccident() {
     _isAccidentDetected = true;
-    _highAccelerationCount = 0;
-    _highNoiseCount = 0;
+    _recentAccelerations.clear();
+    _resetTriggerTimestamps(); // belt-and-suspenders
     _startAccidentCountdown();
   }
 
   Future<void> _startAccidentCountdown() async {
-    _countdownEndTime =
-        DateTime.now().add(Duration(seconds: ALARM_DURATION));
+    _countdownEndTime = DateTime.now().add(const Duration(seconds: alarmDuration));
     await _startAlarm();
     try {
       await platform.invokeMethod('turnScreenOn');
     } catch (_) {}
     try {
-      await platform
-          .invokeMethod('startAlarmService', {'duration': ALARM_DURATION});
+      await platform.invokeMethod('startAlarmService', {'duration': alarmDuration});
     } catch (_) {}
     _startUserSafePolling();
     _uiUpdateTimer?.cancel();
-    _uiUpdateTimer =
-        Timer.periodic(const Duration(milliseconds: 500), (timer) {
-          final remaining = _getRemainingSeconds();
-          if (mounted) setState(() {});
-          if (remaining <= 0) {
-            timer.cancel();
-            _onCountdownComplete();
-          }
-        });
+    _uiUpdateTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      final remaining = _getRemainingSeconds();
+      if (mounted) setState(() {});
+      if (remaining <= 0) {
+        timer.cancel();
+        _onCountdownComplete();
+      }
+    });
     if (mounted) _showAccidentDialog();
   }
 
   void _startUserSafePolling() {
     _userSafeCheckTimer?.cancel();
-    _userSafeCheckTimer =
-        Timer.periodic(const Duration(milliseconds: 500), (timer) {
-          if (!_isAccidentDetected) {
-            timer.cancel();
-            return;
-          }
-          _checkUserSafeStatus();
-        });
+    _userSafeCheckTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      if (!_isAccidentDetected) {
+        timer.cancel();
+        return;
+      }
+      _checkUserSafeStatus();
+    });
   }
 
   Future<void> _onCountdownComplete() async {
@@ -390,8 +445,7 @@ class _HomeScreenState extends State<HomeScreen>
             await _sendEmergencySMS();
             Navigator.push(
                 context,
-                MaterialPageRoute(
-                    builder: (_) => const SosScreen()));
+                MaterialPageRoute(builder: (_) => const SosScreen()));
             setState(() => _isAccidentDetected = false);
           },
         ),
@@ -470,9 +524,9 @@ class _HomeScreenState extends State<HomeScreen>
   void _showSnackBar(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(message,
-          style: AppTheme.bodyFont.copyWith(
-              color: Colors.white, fontWeight: FontWeight.w600)),
-      backgroundColor: color.withOpacity(0.9),
+          style: AppTheme.bodyFont
+              .copyWith(color: Colors.white, fontWeight: FontWeight.w600)),
+      backgroundColor: color.withValues(alpha: 0.9),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       margin: const EdgeInsets.all(16),
@@ -500,8 +554,6 @@ class _HomeScreenState extends State<HomeScreen>
                   _buildRadarCard(),
                   const SizedBox(height: 16),
                   _buildStatsRow(),
-                  // const SizedBox(height: 16),
-                  // _buildThresholdsCard(),
                   const SizedBox(height: 16),
                   _buildHowItWorksCard(),
                 ],
@@ -522,7 +574,8 @@ class _HomeScreenState extends State<HomeScreen>
       pinned: true,
       backgroundColor: AppTheme.bgDark,
       flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        titlePadding:
+        const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         title: Row(
           children: [
             Container(
@@ -535,7 +588,7 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
                 boxShadow: [
                   BoxShadow(
-                      color: AppTheme.accent.withOpacity(0.4),
+                      color: AppTheme.accent.withValues(alpha: 0.4),
                       blurRadius: 8)
                 ],
               ),
@@ -570,13 +623,13 @@ class _HomeScreenState extends State<HomeScreen>
           colors: [
             AppTheme.bgCard,
             _isMonitoring
-                ? AppTheme.accent.withOpacity(0.08)
+                ? AppTheme.accent.withValues(alpha: 0.08)
                 : AppTheme.bgCard,
           ],
         ),
         border: Border.all(
           color: _isMonitoring
-              ? AppTheme.accent.withOpacity(0.3)
+              ? AppTheme.accent.withValues(alpha: 0.3)
               : AppTheme.border,
           width: 1,
         ),
@@ -584,7 +637,6 @@ class _HomeScreenState extends State<HomeScreen>
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Radar rings
           if (_isMonitoring)
             AnimatedBuilder(
               animation: _radarController,
@@ -595,7 +647,6 @@ class _HomeScreenState extends State<HomeScreen>
                 );
               },
             ),
-          // Center content
           Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -624,7 +675,7 @@ class _HomeScreenState extends State<HomeScreen>
                           boxShadow: _isMonitoring
                               ? [
                             BoxShadow(
-                              color: AppTheme.accent.withOpacity(0.5),
+                              color: AppTheme.accent.withValues(alpha: 0.5),
                               blurRadius: 30,
                               spreadRadius: 5,
                             )
@@ -670,9 +721,7 @@ class _HomeScreenState extends State<HomeScreen>
               ),
               const SizedBox(height: 20),
               Text(
-                _isMonitoring
-                    ? 'SHIELD ACTIVE'
-                    : 'SHIELD INACTIVE',
+                _isMonitoring ? 'SHIELD ACTIVE' : 'SHIELD INACTIVE',
                 style: AppTheme.displayFont.copyWith(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -702,11 +751,11 @@ class _HomeScreenState extends State<HomeScreen>
                     borderRadius: BorderRadius.circular(30),
                     border: Border.all(
                       color: _isMonitoring
-                          ? AppTheme.accent.withOpacity(0.5)
+                          ? AppTheme.accent.withValues(alpha: 0.5)
                           : AppTheme.border,
                     ),
                     color: _isMonitoring
-                        ? AppTheme.accent.withOpacity(0.12)
+                        ? AppTheme.accent.withValues(alpha: 0.12)
                         : AppTheme.bgCardLight,
                   ),
                   child: Text(
@@ -788,103 +837,103 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildThresholdsCard() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppTheme.bgCard,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            Container(
-              width: 3,
-              height: 18,
-              decoration: BoxDecoration(
-                color: AppTheme.warning,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Text('DETECTION THRESHOLDS',
-                style: AppTheme.displayFont.copyWith(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 2,
-                    color: AppTheme.warning)),
-          ]),
-          const SizedBox(height: 16),
-          _buildThresholdRow(
-              'Impact Force',
-              '> ${STRICT_ACCEL_THRESHOLD.toStringAsFixed(0)} m/s²',
-              AppTheme.accent),
-          _buildThresholdRow(
-              'Noise Level',
-              '> ${STRICT_NOISE_THRESHOLD.toStringAsFixed(0)} dB',
-              AppTheme.warning),
-          _buildThresholdRow(
-              'Rotation',
-              '> ${STRICT_GYRO_THRESHOLD.toStringAsFixed(0)} rad/s',
-              AppTheme.success),
-          const SizedBox(height: 12),
-          Container(
-            padding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: AppTheme.success.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                  color: AppTheme.success.withOpacity(0.2)),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.check_circle_outline,
-                    color: AppTheme.success, size: 14),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Background service monitors even when app is closed',
-                    style: AppTheme.bodyFont.copyWith(
-                        fontSize: 11, color: AppTheme.success),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Widget _buildThresholdsCard() {
+  //   return Container(
+  //     padding: const EdgeInsets.all(20),
+  //     decoration: BoxDecoration(
+  //       color: AppTheme.bgCard,
+  //       borderRadius: BorderRadius.circular(16),
+  //       border: Border.all(color: AppTheme.border),
+  //     ),
+  //     child: Column(
+  //       crossAxisAlignment: CrossAxisAlignment.start,
+  //       children: [
+  //         Row(children: [
+  //           Container(
+  //             width: 3,
+  //             height: 18,
+  //             decoration: BoxDecoration(
+  //               color: AppTheme.warning,
+  //               borderRadius: BorderRadius.circular(2),
+  //             ),
+  //           ),
+  //           const SizedBox(width: 10),
+  //           Text('DETECTION THRESHOLDS',
+  //               style: AppTheme.displayFont.copyWith(
+  //                   fontSize: 13,
+  //                   fontWeight: FontWeight.w700,
+  //                   letterSpacing: 2,
+  //                   color: AppTheme.warning)),
+  //         ]),
+  //         const SizedBox(height: 16),
+  //         _buildThresholdRow(
+  //             'Impact Force',
+  //             '> ${STRICT_ACCEL_THRESHOLD.toStringAsFixed(0)} m/s²',
+  //             AppTheme.accent),
+  //         _buildThresholdRow(
+  //             'Noise Level',
+  //             '> ${STRICT_NOISE_THRESHOLD.toStringAsFixed(0)} dB',
+  //             AppTheme.warning),
+  //         _buildThresholdRow(
+  //             'Rotation',
+  //             '> ${STRICT_GYRO_THRESHOLD.toStringAsFixed(0)} rad/s',
+  //             AppTheme.success),
+  //         const SizedBox(height: 12),
+  //         Container(
+  //           padding:
+  //           const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+  //           decoration: BoxDecoration(
+  //             color: AppTheme.success.withValues(alpha: 0.08),
+  //             borderRadius: BorderRadius.circular(8),
+  //             border:
+  //             Border.all(color: AppTheme.success.withValues(alpha: 0.2)),
+  //           ),
+  //           child: Row(
+  //             children: [
+  //               const Icon(Icons.check_circle_outline,
+  //                   color: AppTheme.success, size: 14),
+  //               const SizedBox(width: 8),
+  //               Expanded(
+  //                 child: Text(
+  //                   'Background service monitors even when app is closed',
+  //                   style: AppTheme.bodyFont
+  //                       .copyWith(fontSize: 11, color: AppTheme.success),
+  //                 ),
+  //               ),
+  //             ],
+  //           ),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 
-  Widget _buildThresholdRow(String label, String value, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label,
-              style: AppTheme.bodyFont
-                  .copyWith(fontSize: 13, color: AppTheme.textSecondary)),
-          Container(
-            padding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(value,
-                style: AppTheme.displayFont.copyWith(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: color)),
-          ),
-        ],
-      ),
-    );
-  }
+  // Widget _buildThresholdRow(String label, String value, Color color) {
+  //   return Padding(
+  //     padding: const EdgeInsets.symmetric(vertical: 5),
+  //     child: Row(
+  //       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  //       children: [
+  //         Text(label,
+  //             style: AppTheme.bodyFont
+  //                 .copyWith(fontSize: 13, color: AppTheme.textSecondary)),
+  //         Container(
+  //           padding:
+  //           const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+  //           decoration: BoxDecoration(
+  //             color: color.withValues(alpha: 0.1),
+  //             borderRadius: BorderRadius.circular(6),
+  //           ),
+  //           child: Text(value,
+  //               style: AppTheme.displayFont.copyWith(
+  //                   fontSize: 12,
+  //                   fontWeight: FontWeight.w600,
+  //                   color: color)),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 
   Widget _buildHowItWorksCard() {
     final items = [
@@ -932,7 +981,7 @@ class _HomeScreenState extends State<HomeScreen>
                   width: 30,
                   height: 30,
                   decoration: BoxDecoration(
-                    color: AppTheme.accent.withOpacity(0.1),
+                    color: AppTheme.accent.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(item[1] as IconData,
@@ -943,11 +992,37 @@ class _HomeScreenState extends State<HomeScreen>
                   child: Text(item[0] as String,
                       style: AppTheme.bodyFont.copyWith(
                           fontSize: 13,
-                          color: AppTheme.textSecondary)),
+                          color: AppTheme.textSecondary)
+                  ),
                 ),
               ],
             ),
-          )),
+          )
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.warning.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.warning.withValues(alpha: 0.25)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.directions_car_rounded,
+                    color: AppTheme.warning, size: 16),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'For best detection, keep your phone mounted or placed on the seat — not in your pocket.',
+                    style: AppTheme.bodyFont.copyWith(
+                        fontSize: 12, color: AppTheme.warning),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -958,12 +1033,13 @@ class _HomeScreenState extends State<HomeScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: AppTheme.warning.withOpacity(0.08),
-        border: Border.all(color: AppTheme.warning.withOpacity(0.3)),
+        color: AppTheme.warning.withValues(alpha: 0.08),
+        border: Border.all(color: AppTheme.warning.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          Icon(Icons.battery_alert_rounded, color: AppTheme.warning, size: 22),
+          const Icon(Icons.battery_alert_rounded,
+              color: AppTheme.warning, size: 22),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -983,7 +1059,8 @@ class _HomeScreenState extends State<HomeScreen>
           GestureDetector(
             onTap: _requestIgnoreBatteryOptimization,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: AppTheme.warning,
                 borderRadius: BorderRadius.circular(8),
@@ -1017,7 +1094,7 @@ class _HomeScreenState extends State<HomeScreen>
               boxShadow: [
                 BoxShadow(
                   color: AppTheme.accent
-                      .withOpacity(0.3 + _sosController.value * 0.2),
+                      .withValues(alpha: 0.3 + _sosController.value * 0.2),
                   blurRadius: 15 + _sosController.value * 8,
                   spreadRadius: 1 + _sosController.value * 2,
                 ),
@@ -1060,25 +1137,23 @@ class _RadarPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
+    final center    = Offset(size.width / 2, size.height / 2);
     final maxRadius = size.width / 2;
 
-    // Static rings
     for (int i = 1; i <= 4; i++) {
       final paint = Paint()
-        ..color = AppTheme.accent.withOpacity(0.06)
-        ..style = PaintingStyle.stroke
+        ..color      = AppTheme.accent.withValues(alpha: 0.06)
+        ..style      = PaintingStyle.stroke
         ..strokeWidth = 1;
       canvas.drawCircle(center, maxRadius * (i / 4), paint);
     }
 
-    // Sweep
     final sweepPaint = Paint()
       ..shader = SweepGradient(
         colors: [
           Colors.transparent,
-          AppTheme.accent.withOpacity(0.0),
-          AppTheme.accent.withOpacity(0.25),
+          AppTheme.accent.withValues(alpha: 0.0),
+          AppTheme.accent.withValues(alpha: 0.25),
           Colors.transparent,
         ],
         stops: const [0.0, 0.7, 0.9, 1.0],
@@ -1089,9 +1164,8 @@ class _RadarPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
     canvas.drawCircle(center, maxRadius, sweepPaint);
 
-    // Sweep line
     final linePaint = Paint()
-      ..color = AppTheme.accent.withOpacity(0.5)
+      ..color       = AppTheme.accent.withValues(alpha: 0.5)
       ..strokeWidth = 1.5;
     final angle = progress * 2 * pi - pi / 2;
     canvas.drawLine(
@@ -1101,11 +1175,10 @@ class _RadarPainter extends CustomPainter {
       linePaint,
     );
 
-    // Blip
-    final blipAngle = (progress * 2 * pi * 0.7) - pi / 2;
+    final blipAngle  = (progress * 2 * pi * 0.7) - pi / 2;
     final blipRadius = maxRadius * 0.55;
-    final blipPaint = Paint()
-      ..color = AppTheme.accent.withOpacity(0.8)
+    final blipPaint  = Paint()
+      ..color = AppTheme.accent.withValues(alpha: 0.8)
       ..style = PaintingStyle.fill;
     canvas.drawCircle(
       Offset(center.dx + blipRadius * cos(blipAngle),
@@ -1167,10 +1240,10 @@ class _AccidentAlertDialogState extends State<_AccidentAlertDialog>
           color: AppTheme.bgCard,
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
-              color: AppTheme.accent.withOpacity(0.5), width: 1.5),
+              color: AppTheme.accent.withValues(alpha: 0.5), width: 1.5),
           boxShadow: [
             BoxShadow(
-                color: AppTheme.accent.withOpacity(0.2),
+                color: AppTheme.accent.withValues(alpha: 0.2),
                 blurRadius: 30,
                 spreadRadius: 5)
           ],
@@ -1198,9 +1271,9 @@ class _AccidentAlertDialogState extends State<_AccidentAlertDialog>
               height: 120,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border:
-                Border.all(color: AppTheme.accent.withOpacity(0.3), width: 2),
-                color: AppTheme.accent.withOpacity(0.08),
+                border: Border.all(
+                    color: AppTheme.accent.withValues(alpha: 0.3), width: 2),
+                color: AppTheme.accent.withValues(alpha: 0.08),
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1289,9 +1362,9 @@ class _ConfirmSosDialog extends StatelessWidget {
               height: 60,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppTheme.accent.withOpacity(0.1),
+                color: AppTheme.accent.withValues(alpha: 0.1),
                 border: Border.all(
-                    color: AppTheme.accent.withOpacity(0.3), width: 1.5),
+                    color: AppTheme.accent.withValues(alpha: 0.3), width: 1.5),
               ),
               child: const Icon(Icons.emergency_rounded,
                   color: AppTheme.accent, size: 28),

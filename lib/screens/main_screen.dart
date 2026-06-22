@@ -70,7 +70,7 @@ class _MainScreenState extends State<MainScreen>
         border: const Border(top: BorderSide(color: AppTheme.border)),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.3),
+              color: Colors.black.withValues(alpha: 0.3),
               blurRadius: 20,
               offset: const Offset(0, -4))
         ],
@@ -98,7 +98,7 @@ class _MainScreenState extends State<MainScreen>
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(12),
                       color: isActive
-                          ? AppTheme.accent.withOpacity(0.1)
+                          ? AppTheme.accent.withValues(alpha: 0.1)
                           : Colors.transparent,
                     ),
                     child: Column(
