@@ -277,6 +277,19 @@ class AccidentMonitoringService : Service(), SensorEventListener {
         }
     }
 
+    // Checks BOTH SharedPreferences locations, same pattern used by
+    // BootReceiver and MainActivity, so this stays consistent regardless
+    // of which side (native or Flutter) last wrote the flag.
+    private fun isMonitoringStillEnabled(): Boolean {
+        val nativePrefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        val nativeMonitoring = nativePrefs.getBoolean("monitoring_enabled", false)
+
+        val flutterPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        val flutterMonitoring = flutterPrefs.getBoolean("flutter.monitoring_enabled", false)
+
+        return nativeMonitoring || flutterMonitoring
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         Log.d("AccidentService", "🛑 Service destroyed")
@@ -285,20 +298,28 @@ class AccidentMonitoringService : Service(), SensorEventListener {
 
         wakeLock?.let { if (it.isHeld) it.release() }
 
-        // Restart service via AlarmManager for OEM devices that kill services.
-        val restartIntent = Intent(applicationContext, AccidentMonitoringService::class.java)
-        val pendingIntent = PendingIntent.getService(
-            applicationContext, 1, restartIntent,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT
-            else
-                PendingIntent.FLAG_ONE_SHOT
-        )
-        (getSystemService(Context.ALARM_SERVICE) as AlarmManager).set(
-            AlarmManager.RTC_WAKEUP,
-            System.currentTimeMillis() + 1000,
-            pendingIntent
-        )
+        // Only reschedule via AlarmManager (for OEM devices that kill services)
+        // if the user hasn't explicitly turned monitoring off. Without this
+        // check, tapping "Stop Monitoring" would have no effect — the service
+        // would just relaunch itself a second later.
+        if (isMonitoringStillEnabled()) {
+            val restartIntent = Intent(applicationContext, AccidentMonitoringService::class.java)
+            val pendingIntent = PendingIntent.getService(
+                applicationContext, 1, restartIntent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT
+                else
+                    PendingIntent.FLAG_ONE_SHOT
+            )
+            (getSystemService(Context.ALARM_SERVICE) as AlarmManager).set(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 1000,
+                pendingIntent
+            )
+            Log.d("AccidentService", "🔁 Monitoring still enabled — rescheduled restart")
+        } else {
+            Log.d("AccidentService", "⏸️ Monitoring disabled — not rescheduling restart")
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

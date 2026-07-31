@@ -8,6 +8,7 @@ class PermissionService {
     Map<Permission, PermissionStatus> statuses = await [
       Permission.sms,
       Permission.phone,
+      Permission.microphone,
       Permission.location,
       Permission.locationAlways,
       Permission.notification,
@@ -63,8 +64,6 @@ class PermissionService {
     }
   }
 
-  /// Returns a map with keys: sms, phone, location, locationAlways,
-  /// notification, microphone — all checked against actual system state.
   static Future<Map<String, bool>> checkAllPermissions() async {
     final results = await Future.wait([
       Permission.sms.isGranted,
@@ -85,7 +84,9 @@ class PermissionService {
     };
   }
 
-  static Future<bool> openAppSettings() async {
-    return await openAppSettings();
+  // FIXED: was calling itself → StackOverflowError crash.
+  // Renamed so it correctly calls the permission_handler package function.
+  static Future<bool> openSystemAppSettings() async {
+    return await openAppSettings(); // this now resolves to the package-level function
   }
 }
