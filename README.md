@@ -19,6 +19,12 @@
 
 <br/>
 
+<a href="https://github.com/bashii110/RescueMe/releases/download/v1.0.0/app-release.apk">
+  <img src="https://img.shields.io/badge/⬇️_Download-APK_v1.0.0-E53935?style=for-the-badge&logo=android&logoColor=white" />
+</a>
+
+<br/><br/>
+
 ```
 Sensors detect the impact. A countdown gives you a chance to cancel.
 If you don't respond, help is already on the way.
@@ -189,6 +195,14 @@ Each sensor records its own trigger timestamp. Timestamps older than **2 seconds
 ---
 
 ## 🚀 Getting Started
+
+### 📥 Quick Install (APK)
+
+Don't want to build from source? Grab the latest release and install it directly:
+
+**[⬇️ Download app-release.apk (v1.0.0)](https://github.com/bashii110/RescueMe/releases/download/v1.0.0/app-release.apk)**
+
+> You'll need to allow "Install from unknown sources" for your browser/file manager, since this isn't distributed via the Play Store.
 
 ### Prerequisites
 
