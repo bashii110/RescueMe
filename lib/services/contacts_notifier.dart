@@ -3,10 +3,10 @@ import 'package:flutter/foundation.dart';
 /// A global notifier that fires whenever emergency contacts are
 /// added, edited, or deleted. Any widget can listen to this and
 /// reload its contact count without relying on navigation callbacks
-/// or lifecycle hacks.
+/// or life cycle hacks.
 ///
 /// Usage — notify (in contacts screen after save/delete):
-///   ContactsNotifier.instance.notify();
+///   Contacts Notifier.instance.notify();
 ///
 /// Usage — listen (in home screen):
 ///   ContactsNotifier.instance.addListener(_loadContactCount);

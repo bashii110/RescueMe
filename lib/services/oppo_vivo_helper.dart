@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:android_intent_plus/flag.dart';
+import 'package:flutter/foundation.dart';
 
 class OppoVivoHelper {
   /// Check if the device is OPPO, Vivo, Realme, or OnePlus
@@ -20,7 +21,9 @@ class OppoVivoHelper {
           manufacturer.contains('xiaomi') ||
           manufacturer.contains('redmi');
     } catch (e) {
-      print('Error checking device: $e');
+      if (kDebugMode) {
+        print('Error checking device: $e');
+      }
       return false;
     }
   }
@@ -50,7 +53,9 @@ class OppoVivoHelper {
       await intent.launch();
       return true;
     } catch (e) {
-      print('Error requesting battery optimization: $e');
+      if (kDebugMode) {
+        print('Error requesting battery optimization: $e');
+      }
       return false;
     }
   }
@@ -68,7 +73,9 @@ class OppoVivoHelper {
       await intent.launch();
       return true;
     } catch (e) {
-      print('Error opening app settings: $e');
+      if (kDebugMode) {
+        print('Error opening app settings: $e');
+      }
       return false;
     }
   }
@@ -109,7 +116,9 @@ class OppoVivoHelper {
         return true;
       }
     } catch (e) {
-      print('Auto-start settings not available: $e');
+      if (kDebugMode) {
+        print('Auto-start settings not available: $e');
+      }
     }
 
     // Fallback to general app settings
@@ -127,7 +136,9 @@ class OppoVivoHelper {
       await intent.launch();
       return true;
     } catch (e) {
-      print('Error opening battery settings: $e');
+      if (kDebugMode) {
+        print('Error opening battery settings: $e');
+      }
       return false;
     }
   }

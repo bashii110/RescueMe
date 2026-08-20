@@ -1,18 +1,24 @@
 package com.buxhiisd.msg_bypas
 
+import android.Manifest
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
-import kotlin.math.abs
+import kotlin.math.log10
 import kotlin.math.sqrt
 
 class AccidentMonitoringService : Service(), SensorEventListener {
@@ -36,15 +42,35 @@ class AccidentMonitoringService : Service(), SensorEventListener {
     private val SMOOTH_WINDOW = 5
 
     // ── Detection thresholds ──────────────────────────────────────────────
+    // NOTE: STRICT_NOISE_THRESHOLD is expressed in dB using this service's own
+    // RMS-based calculation (see computeDecibels()), which is NOT guaranteed to
+    // read on the same scale as the Flutter-side noise_meter package's
+    // meanDecibel. Calibrate this value against a real device before relying
+    // on it — don't assume 90.0 here means the same loudness as 90.0 in Dart.
     private val STRICT_ACCEL_THRESHOLD = 45.0   // m/s²
     private val STRICT_GYRO_THRESHOLD  = 4.0    // rad/s
+    private val STRICT_NOISE_THRESHOLD = 82.0   // dB (native RMS calc — see note above)
     private val DETECTION_WINDOW_MS    = 2000L  // 2 seconds
 
     // Timestamps — each records when that sensor last crossed its threshold.
-    // Both must have fired within DETECTION_WINDOW_MS to confirm an accident.
+    // All three must have fired within DETECTION_WINDOW_MS to confirm an accident.
     // Null means that sensor has not yet triggered in the current window.
     private var accelTriggerTime: Long? = null
     private var gyroTriggerTime:  Long? = null
+    private var noiseTriggerTime: Long? = null
+
+    // ── Noise (microphone) monitoring ───────────────────────────────────────
+    // Android has no push-based "noise sensor" like it does for accel/gyro, so
+    // this reads raw PCM audio off a background thread and computes dB itself.
+    private var audioRecord: AudioRecord? = null
+    private var noiseMonitoringThread: Thread? = null
+    @Volatile private var isRecordingNoise = false
+    private val NOISE_SAMPLE_RATE = 44100
+    private val noiseBufferSize = AudioRecord.getMinBufferSize(
+        NOISE_SAMPLE_RATE,
+        AudioFormat.CHANNEL_IN_MONO,
+        AudioFormat.ENCODING_PCM_16BIT
+    )
 
     private var isAccidentDetected = false
 
@@ -73,6 +99,7 @@ class AccidentMonitoringService : Service(), SensorEventListener {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
         registerSensors()
+        startNoiseMonitoring()
         return START_STICKY
     }
 
@@ -143,6 +170,112 @@ class AccidentMonitoringService : Service(), SensorEventListener {
         }
     }
 
+    // ── Noise monitoring (mirrors registerSensors()'s role, but for the mic) ─
+    //
+    // There's no listener-based API for audio like there is for accel/gyro,
+    // so this opens a raw AudioRecord stream and polls it continuously on a
+    // dedicated background thread, computing an RMS-based dB value per chunk.
+    //
+    // Fails gracefully: if RECORD_AUDIO isn't granted, or AudioRecord can't
+    // initialize (already in use by another app, hardware unavailable, etc.),
+    // this logs and returns — accident detection then simply falls back to
+    // the existing 2-signal (accel + gyro) logic, same as before this feature
+    // was added.
+    private fun startNoiseMonitoring() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            Log.e("AccidentService", "❌ RECORD_AUDIO not granted — noise detection disabled, falling back to accel+gyro only")
+            return
+        }
+
+        if (noiseBufferSize <= 0) {
+            Log.e("AccidentService", "❌ Invalid AudioRecord buffer size — noise detection disabled")
+            return
+        }
+
+        try {
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                NOISE_SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                noiseBufferSize
+            )
+
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                Log.e("AccidentService", "❌ AudioRecord failed to initialize — noise detection disabled")
+                audioRecord?.release()
+                audioRecord = null
+                return
+            }
+
+            audioRecord?.startRecording()
+            isRecordingNoise = true
+
+            noiseMonitoringThread = Thread {
+                val buffer = ShortArray(noiseBufferSize)
+                while (isRecordingNoise) {
+                    val record = audioRecord ?: break
+                    val read = record.read(buffer, 0, buffer.size)
+                    if (read > 0) {
+                        val db = computeDecibels(buffer, read)
+                        if (db > STRICT_NOISE_THRESHOLD) {
+                            noiseTriggerTime = System.currentTimeMillis()
+                        }
+                        // checkForAccident() is otherwise only called from
+                        // onSensorChanged; call it here too so a noise spike
+                        // can complete a pending accel+gyro match without
+                        // waiting for the next motion event.
+                        checkForAccident()
+                    }
+                }
+            }.apply {
+                isDaemon = true
+                start()
+            }
+
+            Log.d("AccidentService", "✅ Noise monitoring started")
+        } catch (e: Exception) {
+            Log.e("AccidentService", "❌ Failed to start noise monitoring: ${e.message}")
+            isRecordingNoise = false
+            audioRecord?.release()
+            audioRecord = null
+        }
+    }
+
+    private fun stopNoiseMonitoring() {
+        isRecordingNoise = false
+        try {
+            noiseMonitoringThread?.join(500)
+        } catch (e: InterruptedException) {
+            Log.e("AccidentService", "Noise thread join interrupted: ${e.message}")
+        }
+        noiseMonitoringThread = null
+
+        try {
+            audioRecord?.stop()
+        } catch (e: Exception) {
+            // stop() throws if recording never actually started — safe to ignore
+        }
+        audioRecord?.release()
+        audioRecord = null
+        Log.d("AccidentService", "🛑 Noise monitoring stopped")
+    }
+
+    // Standard RMS → dB SPL-style conversion for 16-bit PCM samples.
+    // This is a relative loudness measure, not a calibrated SPL reading —
+    // see the STRICT_NOISE_THRESHOLD note above regarding cross-checking
+    // against the Flutter-side noise_meter scale.
+    private fun computeDecibels(buffer: ShortArray, readSize: Int): Double {
+        var sumSquares = 0.0
+        for (i in 0 until readSize) {
+            sumSquares += (buffer[i] * buffer[i]).toDouble()
+        }
+        val rms = sqrt(sumSquares / readSize)
+        if (rms <= 0.0) return 0.0
+        return 20 * log10(rms)
+    }
+
     override fun onSensorChanged(event: SensorEvent?) {
         event ?: return
         when (event.sensor.type) {
@@ -165,15 +298,20 @@ class AccidentMonitoringService : Service(), SensorEventListener {
     // ── Core detection logic ──────────────────────────────────────────────
     //
     // Each sensor independently records the last time it crossed its threshold.
-    // An accident is confirmed only when BOTH timestamps exist AND the spread
-    // between them is within DETECTION_WINDOW_MS (2 seconds).
+    // An accident is confirmed only when ALL THREE timestamps exist AND the
+    // spread between the oldest and newest is within DETECTION_WINDOW_MS
+    // (2 seconds) — same model as the Dart-side foreground detector.
     //
     // Timestamps older than the window are expired automatically — this ensures
     // a single-sensor spike from 5 seconds ago can never combine with a fresh
     // spike today to create a false trigger.
     //
-    // No order is enforced: gyro may fire before accel or vice versa, which
-    // correctly handles all real-world crash geometries.
+    // No order is enforced: any of the three may fire first, which correctly
+    // handles all real-world crash geometries.
+    //
+    // Called both from onSensorChanged() (motion events) and from the noise
+    // monitoring thread (audio chunks), since either could be the signal that
+    // completes an already-pending match.
     //
     private fun checkForAccident() {
         if (isAccidentDetected) return
@@ -199,25 +337,32 @@ class AccidentMonitoringService : Service(), SensorEventListener {
         val now = System.currentTimeMillis()
 
         // ── Step 1: Expire timestamps outside the detection window.
-        //    If accel spiked 5 s ago but gyro hasn't fired yet, that
+        //    If accel spiked 5 s ago but the others haven't fired yet, that
         //    accel event is irrelevant — clear it and wait for a fresh one.
         accelTriggerTime?.let { if (now - it > DETECTION_WINDOW_MS) accelTriggerTime = null }
         gyroTriggerTime?.let  { if (now - it > DETECTION_WINDOW_MS) gyroTriggerTime  = null }
+        noiseTriggerTime?.let { if (now - it > DETECTION_WINDOW_MS) noiseTriggerTime = null }
 
         // ── Step 2: Record a fresh timestamp if the sensor crosses its threshold.
-        if (avgAccel          > STRICT_ACCEL_THRESHOLD) accelTriggerTime = now
-        if (gyroscopeMagnitude > STRICT_GYRO_THRESHOLD) gyroTriggerTime  = now
+        //    (Noise's own timestamp is set directly on the monitoring thread,
+        //    since that's where the dB reading is computed.)
+        if (avgAccel           > STRICT_ACCEL_THRESHOLD) accelTriggerTime = now
+        if (gyroscopeMagnitude > STRICT_GYRO_THRESHOLD)  gyroTriggerTime  = now
 
-        // ── Step 3: Both must have triggered to proceed.
+        // ── Step 3: All three must have triggered to proceed.
         val at = accelTriggerTime ?: return
         val gt = gyroTriggerTime  ?: return
+        val nt = noiseTriggerTime ?: return
 
-        // ── Step 4: Check the spread fits within the detection window.
-        val spreadMs = abs(at - gt)
+        // ── Step 4: Check that all three fall within the detection window —
+        //    find the oldest and newest timestamps, spread must be ≤ 2s.
+        val oldest = minOf(at, gt, nt)
+        val newest = maxOf(at, gt, nt)
+        val spreadMs = newest - oldest
+
         if (spreadMs <= DETECTION_WINDOW_MS) {
-            // ✅ Accident confirmed — both sensors fired within the window.
-            accelTriggerTime = null
-            gyroTriggerTime  = null
+            // ✅ Accident confirmed — all three sensors fired within the window.
+            resetTriggerTimestamps()
             triggerAccident()
         }
     }
@@ -225,27 +370,45 @@ class AccidentMonitoringService : Service(), SensorEventListener {
     private fun resetTriggerTimestamps() {
         accelTriggerTime = null
         gyroTriggerTime  = null
+        noiseTriggerTime = null
     }
 
     private fun triggerAccident() {
         isAccidentDetected = true
         recentAccelerations.clear()
-        resetTriggerTimestamps() // belt-and-suspenders
+        resetTriggerTimestamps()
 
         Log.d("AccidentService", "🚨 ACCIDENT DETECTED IN BACKGROUND!")
 
         updateNotificationForAccident()
-        launchMainActivity()
 
-        // Broadcast to MainActivity if it's running
+        // Start the native countdown/alarm directly — no dependency on
+        // MainActivity or Flutter being alive. This is what actually sends
+        // the SMS/calls if the process was killed.
+        startNativeAlarmCountdown()
+
+        // Also try to bring the app forward for the richer in-app experience
+        // (siren UI, haptics) when the process is reachable.
+        launchMainActivity()
         sendBroadcast(Intent("ACCIDENT_DETECTED_BACKGROUND"))
 
-        // Reset detection flag after 30 seconds so the service
-        // can detect a subsequent accident if needed.
         android.os.Handler(mainLooper).postDelayed({
             isAccidentDetected = false
             Log.d("AccidentService", "✅ Detection reset")
         }, 30000)
+    }
+
+    private fun startNativeAlarmCountdown() {
+        val alarmIntent = Intent(this, AlarmForegroundService::class.java)
+        alarmIntent.putExtra("duration", 30)
+        // No "nativeSendOnFinish" extra → defaults true in AlarmForegroundService,
+        // i.e. this service is responsible for sending the alert unless Flutter
+        // later restarts it with that flag set to false (see MainActivity).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(alarmIntent)
+        } else {
+            startService(alarmIntent)
+        }
     }
 
     private fun updateNotificationForAccident() {
@@ -295,6 +458,7 @@ class AccidentMonitoringService : Service(), SensorEventListener {
         Log.d("AccidentService", "🛑 Service destroyed")
 
         sensorManager.unregisterListener(this)
+        stopNoiseMonitoring()
 
         wakeLock?.let { if (it.isHeld) it.release() }
 

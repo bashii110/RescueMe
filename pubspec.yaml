@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
 
   sensors_plus: ^4.0.2
-  noise_meter: ^4.0.1
+  noise_meter: 5.1.0
   audioplayers: ^5.2.1
   flutter_ringtone_player: ^4.0.0+4  # ← ADD THIS LINE
 
@@ -19,7 +19,7 @@ dependencies:
   telephony: ^0.2.0
   geolocator: ^10.1.0
   geocoding: ^2.1.1
-  permission_handler: ^10.0.0
+  permission_handler: ^12.0.3
   shared_preferences: ^2.2.2
   url_launcher: ^6.2.0
   device_info_plus: ^9.1.0

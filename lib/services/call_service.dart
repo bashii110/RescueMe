@@ -1,4 +1,5 @@
-// lib/services/call_service.dart
+// Lib/services/call_service.Dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class CallService {
@@ -7,21 +8,29 @@ class CallService {
   /// Make an emergency call to a phone number
   static Future<bool> makeEmergencyCall(String phoneNumber) async {
     try {
-      print("📞 Attempting to call: $phoneNumber");
+      if (kDebugMode) {
+        print("📞 Attempting to call: $phoneNumber");
+      }
 
       final bool result = await platform.invokeMethod('makeCall', {
         'phoneNumber': phoneNumber,
       });
 
       if (result) {
-        print("✅ Call initiated to $phoneNumber");
+        if (kDebugMode) {
+          print("✅ Call initiated to $phoneNumber");
+        }
       } else {
-        print("❌ Failed to initiate call to $phoneNumber");
+        if (kDebugMode) {
+          print("❌ Failed to initiate call to $phoneNumber");
+        }
       }
 
       return result;
     } catch (e) {
-      print("❌ Call error: $e");
+      if (kDebugMode) {
+        print("❌ Call error: $e");
+      }
       return false;
     }
   }
@@ -31,33 +40,47 @@ class CallService {
     Duration delayBetweenCalls = const Duration(seconds: 3),
   }) async {
     if (phoneNumbers.isEmpty) {
-      print("⚠️ No phone numbers provided for calling");
+      if (kDebugMode) {
+        print("⚠️ No phone numbers provided for calling");
+      }
       return;
     }
 
-    print("📞 Starting emergency calls to ${phoneNumbers.length} contacts");
+    if (kDebugMode) {
+      print("📞 Starting emergency calls to ${phoneNumbers.length} contacts");
+    }
 
     for (int i = 0; i < phoneNumbers.length; i++) {
       final phoneNumber = phoneNumbers[i];
 
-      print("📞 Calling contact ${i + 1}/${phoneNumbers.length}: $phoneNumber");
+      if (kDebugMode) {
+        print("📞 Calling contact ${i + 1}/${phoneNumbers.length}: $phoneNumber");
+      }
 
       final success = await makeEmergencyCall(phoneNumber);
 
       if (success) {
-        print("✅ Call ${i + 1} successful");
+        if (kDebugMode) {
+          print("✅ Call ${i + 1} successful");
+        }
 
         // Wait before next call (except for last one)
         if (i < phoneNumbers.length - 1) {
-          print("⏳ Waiting ${delayBetweenCalls.inSeconds} seconds before next call...");
+          if (kDebugMode) {
+            print("⏳ Waiting ${delayBetweenCalls.inSeconds} seconds before next call...");
+          }
           await Future.delayed(delayBetweenCalls);
         }
       } else {
-        print("❌ Call ${i + 1} failed");
+        if (kDebugMode) {
+          print("❌ Call ${i + 1} failed");
+        }
       }
     }
 
-    print("✅ Emergency calling completed");
+    if (kDebugMode) {
+      print("✅ Emergency calling completed");
+    }
   }
 
   /// Check if phone call permission is granted
@@ -66,7 +89,9 @@ class CallService {
       final bool result = await platform.invokeMethod('hasCallPermission');
       return result;
     } catch (e) {
-      print("❌ Permission check error: $e");
+      if (kDebugMode) {
+        print("❌ Permission check error: $e");
+      }
       return false;
     }
   }
@@ -77,7 +102,9 @@ class CallService {
       final bool result = await platform.invokeMethod('requestCallPermission');
       return result;
     } catch (e) {
-      print("❌ Permission request error: $e");
+      if (kDebugMode) {
+        print("❌ Permission request error: $e");
+      }
       return false;
     }
   }

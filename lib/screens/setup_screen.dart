@@ -151,7 +151,12 @@ class _SetupScreenState extends State<SetupScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('is_setup', true);
 
-      // Request battery optimization exemption for restricted devices
+      // Default protection ON. Setup re-runs whenever an OEM clears app
+      // data or force-stops the app — previously this silently left
+      // monitoring OFF with zero indication to the user. A life-safety
+      // feature should fail "protected", not "unprotected".
+      await prefs.setBool('monitoring_enabled', true);   // ADD THIS
+
       if (_isRestrictedDevice) {
         const packageName = 'com.buxhiisd.msg_bypas';
         await OppoVivoHelper.requestBatteryOptimizationExemption(packageName);

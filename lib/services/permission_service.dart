@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:telephony/telephony.dart';
 
@@ -49,7 +50,9 @@ class PermissionService {
       final bool? result = await telephony.requestSmsPermissions;
       return result ?? false;
     } catch (e) {
-      print('Error requesting SMS permissions: $e');
+      if (kDebugMode) {
+        print('Error requesting SMS permissions: $e');
+      }
       return false;
     }
   }
@@ -59,7 +62,9 @@ class PermissionService {
       final bool? result = await telephony.isSmsCapable;
       return result ?? false;
     } catch (e) {
-      print('Error checking SMS capability: $e');
+      if (kDebugMode) {
+        print('Error checking SMS capability: $e');
+      }
       return false;
     }
   }

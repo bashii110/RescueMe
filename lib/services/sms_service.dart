@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -64,11 +65,15 @@ class SMSService {
       final smsStatus = await Permission.sms.request();
       final phoneStatus = await Permission.phone.request();
 
-      print('SMS Permission: $smsStatus');
-      print('Phone Permission: $phoneStatus');
+      if (kDebugMode) {
+        print('SMS Permission: $smsStatus');
+        print('Phone Permission: $phoneStatus');
+      }
+
 
       // For Chinese OEMs, request autostart permission
       if (await isChineseOEM()) {
+
         print('⚠️ Chinese OEM detected - requesting autostart');
         try {
           await servicePlatform.invokeMethod('requestAutoStartPermission');

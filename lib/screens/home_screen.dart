@@ -47,7 +47,7 @@ class _HomeScreenState extends State<HomeScreen>
   // ─── Detection thresholds ───────────────────────────
   static const double accelThreshold  = 45.0;  // m/s²
   static const double gyroThreshold   = 4.0;   // rad/s
-  static const double noiseThreshold  = 90.0;  // dB
+  static const double noiseThreshold  = 82.0;  // dB
   static const int    timeWindow     = 2000;  // 2 seconds
   static const int    smoothWindow           = 5;
   static const int    alarmDuration          = 30;
@@ -836,104 +836,6 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
   }
-
-  // Widget _buildThresholdsCard() {
-  //   return Container(
-  //     padding: const EdgeInsets.all(20),
-  //     decoration: BoxDecoration(
-  //       color: AppTheme.bgCard,
-  //       borderRadius: BorderRadius.circular(16),
-  //       border: Border.all(color: AppTheme.border),
-  //     ),
-  //     child: Column(
-  //       crossAxisAlignment: CrossAxisAlignment.start,
-  //       children: [
-  //         Row(children: [
-  //           Container(
-  //             width: 3,
-  //             height: 18,
-  //             decoration: BoxDecoration(
-  //               color: AppTheme.warning,
-  //               borderRadius: BorderRadius.circular(2),
-  //             ),
-  //           ),
-  //           const SizedBox(width: 10),
-  //           Text('DETECTION THRESHOLDS',
-  //               style: AppTheme.displayFont.copyWith(
-  //                   fontSize: 13,
-  //                   fontWeight: FontWeight.w700,
-  //                   letterSpacing: 2,
-  //                   color: AppTheme.warning)),
-  //         ]),
-  //         const SizedBox(height: 16),
-  //         _buildThresholdRow(
-  //             'Impact Force',
-  //             '> ${STRICT_ACCEL_THRESHOLD.toStringAsFixed(0)} m/s²',
-  //             AppTheme.accent),
-  //         _buildThresholdRow(
-  //             'Noise Level',
-  //             '> ${STRICT_NOISE_THRESHOLD.toStringAsFixed(0)} dB',
-  //             AppTheme.warning),
-  //         _buildThresholdRow(
-  //             'Rotation',
-  //             '> ${STRICT_GYRO_THRESHOLD.toStringAsFixed(0)} rad/s',
-  //             AppTheme.success),
-  //         const SizedBox(height: 12),
-  //         Container(
-  //           padding:
-  //           const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-  //           decoration: BoxDecoration(
-  //             color: AppTheme.success.withValues(alpha: 0.08),
-  //             borderRadius: BorderRadius.circular(8),
-  //             border:
-  //             Border.all(color: AppTheme.success.withValues(alpha: 0.2)),
-  //           ),
-  //           child: Row(
-  //             children: [
-  //               const Icon(Icons.check_circle_outline,
-  //                   color: AppTheme.success, size: 14),
-  //               const SizedBox(width: 8),
-  //               Expanded(
-  //                 child: Text(
-  //                   'Background service monitors even when app is closed',
-  //                   style: AppTheme.bodyFont
-  //                       .copyWith(fontSize: 11, color: AppTheme.success),
-  //                 ),
-  //               ),
-  //             ],
-  //           ),
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
-
-  // Widget _buildThresholdRow(String label, String value, Color color) {
-  //   return Padding(
-  //     padding: const EdgeInsets.symmetric(vertical: 5),
-  //     child: Row(
-  //       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-  //       children: [
-  //         Text(label,
-  //             style: AppTheme.bodyFont
-  //                 .copyWith(fontSize: 13, color: AppTheme.textSecondary)),
-  //         Container(
-  //           padding:
-  //           const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-  //           decoration: BoxDecoration(
-  //             color: color.withValues(alpha: 0.1),
-  //             borderRadius: BorderRadius.circular(6),
-  //           ),
-  //           child: Text(value,
-  //               style: AppTheme.displayFont.copyWith(
-  //                   fontSize: 12,
-  //                   fontWeight: FontWeight.w600,
-  //                   color: color)),
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
 
   Widget _buildHowItWorksCard() {
     final items = [

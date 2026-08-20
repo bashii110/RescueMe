@@ -5,24 +5,6 @@ import 'package:msg_bypas/screens/splash_screen.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:noise_meter/noise_meter.dart';
 
-// // ─── App Theme (matches HomeScreen) ─────────────────
-// class AppTheme {
-//   static const Color bgDark        = Color(0xFF0A0A0F);
-//   static const Color bgCard        = Color(0xFF12121A);
-//   static const Color bgCardLight   = Color(0xFF1A1A26);
-//   static const Color accent        = Color(0xFFFF3B5C);
-//   static const Color success       = Color(0xFF00E676);
-//   static const Color warning       = Color(0xFFFFAB00);
-//   static const Color border        = Color(0xFF1E1E2E);
-//   static const Color textPrimary   = Color(0xFFEEEEFF);
-//   static const Color textSecondary = Color(0xFF6E6E8A);
-//
-//   static const TextStyle displayFont = TextStyle(
-//     fontFamily: 'Courier',
-//     color: textPrimary,
-//   );
-//   static const TextStyle bodyFont = TextStyle(color: textSecondary);
-// }
 
 // ─── Sensor Readings Screen ──────────────────────────
 // Sensors stream events many times per second. Instead of rebuilding the UI

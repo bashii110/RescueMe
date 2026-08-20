@@ -17,6 +17,7 @@ class AlarmForegroundService : Service() {
     private var remainingSeconds = 30
     private var isUserSafe = false
     private var wakeLock: PowerManager.WakeLock? = null
+    private var nativeSendOnFinish = true
 
     companion object {
         private const val CHANNEL_ID = "emergency_alarm_channel_silent_v2"
@@ -91,7 +92,11 @@ class AlarmForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+
         val duration = intent?.getIntExtra("duration", 30) ?: 30
+        // ADD THIS LINE — defaults true, so a native-only trigger sends the
+        // alert itself; a Flutter-driven trigger explicitly opts out.
+        nativeSendOnFinish = intent?.getBooleanExtra("nativeSendOnFinish", true) ?: true
         remainingSeconds = duration
         isUserSafe = false
 
@@ -166,6 +171,9 @@ class AlarmForegroundService : Service() {
                 if (!isUserSafe) {
                     println("⏰ Countdown finished - triggering emergency")
                     sendCompletionBroadcast()
+                    if (nativeSendOnFinish) {                                    // ADD
+                        EmergencySender.sendEmergencyAlerts(applicationContext)  // ADD
+                    }
                 }
                 releaseWakeLock()
                 stopSelf()

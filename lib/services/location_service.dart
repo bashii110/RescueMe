@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 
@@ -26,7 +27,9 @@ class LocationService {
         timeLimit: const Duration(seconds: 10),
       );
     } catch (e) {
-      print('Error getting location: $e');
+      if (kDebugMode) {
+        print('Error getting location: $e');
+      }
       return null;
     }
   }
@@ -39,7 +42,9 @@ class LocationService {
         return '${place.street}, ${place.locality}, ${place.subAdministrativeArea}, ${place.country}';
       }
     } catch (e) {
-      print('Error getting address: $e');
+      if (kDebugMode) {
+        print('Error getting address: $e');
+      }
     }
     return 'Address not available';
   }

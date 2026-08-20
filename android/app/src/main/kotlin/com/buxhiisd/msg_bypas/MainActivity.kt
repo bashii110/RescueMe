@@ -37,7 +37,9 @@ class MainActivity : FlutterActivity() {
     private val SMS_SENT = "SMS_SENT"
     private val SMS_DELIVERED = "SMS_DELIVERED"
 
-    private val smsSendResults = mutableMapOf<String, Boolean>()
+    // Thread-safe: written from the background SMS-sending thread AND from
+    // smsSentReceiver/smsDeliveredReceiver, which fire on the main thread.
+    private val smsSendResults = java.util.Collections.synchronizedMap(mutableMapOf<String, Boolean>())
 
     private val smsSentReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -219,8 +221,22 @@ class MainActivity : FlutterActivity() {
 
                     if (phoneNumber != null && message != null) {
                         if (hasSmsPermission()) {
-                            val success = sendSMSWithRetry(phoneNumber, message)
-                            result.success(success)
+                            // Run off the main thread — sendSMSWithRetry() can block
+                            // for several seconds (Thread.sleep between retries), and
+                            // MethodChannel callbacks execute on the UI thread by
+                            // default. Blocking here would freeze the app, including
+                            // the "I'M SAFE" button, during an active accident.
+                            Thread {
+                                val success = sendSMSWithRetry(phoneNumber, message)
+                                // MethodChannel.Result must be invoked on the
+                                // platform thread — hop back before delivering it.
+                                runOnUiThread {
+                                    result.success(success)
+                                }
+                            }.apply {
+                                isDaemon = true
+                                start()
+                            }
                         } else {
                             requestAllPermissions()
                             result.error("NO_PERMISSION", "SMS permission not granted", null)
@@ -665,6 +681,10 @@ class MainActivity : FlutterActivity() {
 
         val serviceIntent = Intent(this, AlarmForegroundService::class.java)
         serviceIntent.putExtra("duration", duration)
+        // Flutter is alive and will send the alert itself via
+        // _onCountdownComplete()/"SEND SOS NOW" — don't let the native
+        // service send a duplicate when its countdown finishes.
+        serviceIntent.putExtra("nativeSendOnFinish", false)   // ADD THIS
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)

@@ -281,7 +281,6 @@ class AppTheme {
     colorScheme: const ColorScheme.dark(
       primary: accent,
       surface: bgCard,
-      background: bgDark,
       error: accentGlow,
     ),
     appBarTheme: const AppBarTheme(
@@ -297,7 +296,7 @@ class AppTheme {
         letterSpacing: 2,
       ),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: bgCard,
       elevation: 0,
       shape: RoundedRectangleBorder(

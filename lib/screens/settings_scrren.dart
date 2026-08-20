@@ -42,15 +42,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _permissions = permissions);
   }
 
-  // void _showSnackBar(String message, Color color) {
-  //   ScaffoldMessenger.of(context).showSnackBar(
-  //     SnackBar(
-  //       content: Text(message),
-  //       backgroundColor: color,
-  //     ),
-  //   );
-  // }
-
   void _showRestrictedDeviceDialog(String manufacturer) {
     showDialog(
       context: context,
